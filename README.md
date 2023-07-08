@@ -9,7 +9,7 @@
 - [ ] **More ViT Backbones.** There are others available that may improve results
 
 # Preliminary Results
-On a small sample of COCO, I am able to achieve a mAP of 0.402 in just 5 epochs (12 minutes). Compare this to DETR's mAP of 0.42 (per their repo, although the results aren't directly comparable since they are not subsetting COCO).
+On a small sample of COCO, I am able to achieve a mAP of 0.402 in just 5 epochs (~10 minutes of actual train time). Compare this to DETR's mAP of 0.42 (per their repo, although the results aren't directly comparable since they are not subsetting COCO).
 ```
 100%|███████████████████| 2481/2481 [02:02<00:00, 20.33it/s]
 100%|███████████████████████| 98/98 [00:03<00:00, 25.69it/s]
