@@ -4,7 +4,6 @@ import time
 import numpy as np
 from tabulate import tabulate
 import torch
-from torch.utils.tensorboard import SummaryWriter
 from torchvision.io import read_image
 from torchvision.ops import box_convert as _box_convert
 from torchvision.utils import draw_bounding_boxes
@@ -21,10 +20,14 @@ class GeneralLossAccumulator:
             self.loss_values[k] += v.item()
         self.n += 1
 
-    def get_values(self):
+    def get_values(self, reset=True):
         averaged = {}
         for k, v in self.loss_values.items():
             averaged[k] = round(v / self.n, 5)
+
+        if reset:
+            self.reset()
+
         return averaged
 
     def reset(self):
@@ -35,9 +38,8 @@ class ProgressFormatter:
     def __init__(self):
         self.table = {
             "epoch": [],
-            "class loss": [],
-            "bg loss": [],
-            "box loss": [],
+            "class loss (T/V)": [],
+            "bg loss (T/V)": [],
             "map": [],
             "map@0.5": [],
             "map (L/M/S)": [],
@@ -46,26 +48,27 @@ class ProgressFormatter:
         }
         self.start = time.time()
 
-    def update(self, epoch, train_metrics, val_metrics):
+    def update(self, epoch, mean_train_loss, mean_val_loss, val_metrics):
         self.table["epoch"].append(epoch)
-        self.table["class loss"].append(train_metrics["loss_ce"])
-        self.table["bg loss"].append(train_metrics["loss_bg"])
-        self.table["box loss"].append(
-            train_metrics["loss_bbox"] + train_metrics["loss_giou"]
-        )
+        tl = round(mean_train_loss["loss_ce"], 4)
+        vl = round(mean_val_loss["loss_ce"], 4)
+        self.table["class loss (T/V)"].append(f"{tl}/{vl}")
+
+        tl = round(mean_train_loss["loss_bg"], 4)
+        vl = round(mean_val_loss["loss_bg"], 4)
+        self.table["bg loss (T/V)"].append(f"{tl}/{vl}")
+
         self.table["map"].append(round(val_metrics["map"].item(), 3))
         self.table["map@0.5"].append(round(val_metrics["map_50"].item(), 3))
 
         map_s = round(val_metrics["map_small"].item(), 2)
         map_m = round(val_metrics["map_medium"].item(), 2)
         map_l = round(val_metrics["map_large"].item(), 2)
-
         self.table["map (L/M/S)"].append(f"{map_l}/{map_m}/{map_s}")
 
         mar_s = round(val_metrics["mar_small"].item(), 2)
         mar_m = round(val_metrics["mar_medium"].item(), 2)
         mar_l = round(val_metrics["mar_large"].item(), 2)
-
         self.table["mar (L/M/S)"].append(f"{mar_l}/{mar_m}/{mar_s}")
 
         self.table["time elapsed"].append(

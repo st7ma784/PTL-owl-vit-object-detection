@@ -163,24 +163,24 @@ def load_model(labelmap, device):
 
     patched_model = OwlViT(pretrained_model=_model, query_bank=queries)
 
+    trainable_parameters = []
     for name, parameter in patched_model.named_parameters():
         conditions = [
-            "layers.10",
-            "layers.11",
-            "box",
-            "post_layernorm",
-            "post_layernorm",
-            "class_predictor",
-            "queries",
+            "layers.11.mlp" in name,
+            "layers.11.layer" in name,
+            "box" in name,
+            "post_layernorm" in name,
+            "class_predictor" in name,
+            "queries" in name,
         ]
         if any(conditions):
+            trainable_parameters.append(name)
             continue
 
         parameter.requires_grad = False
 
     print("Trainable parameters:")
-    for name, parameter in patched_model.named_parameters():
-        if parameter.requires_grad:
-            print(f"  {name}")
+    for t in trainable_parameters:
+        print(f"  {t}")
     print()
     return patched_model.to(device)

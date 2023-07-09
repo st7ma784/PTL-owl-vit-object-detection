@@ -4,17 +4,18 @@ data:
   num_train_images: 10000  # Keep high enough to ensure that at least one of each label is seen in training. 2500 is a good minimum
   num_test_images: 500
 
-training:
+training:  # Includes eval params
   n_epochs: 20
   learning_rate: 3e-6  # Keep very low
   save_eval_images: false
-  use_class_weight: true 
-  weight_decay: 0.1  # default
-  confidence_threshold: 0.01  # This can be quite low and still achieve good results
-  iou_threshold: 0.6  # For nms
+  use_class_weight: false  # performance seems worse with class weight, keep false
+  weight_decay: 0.1  # torch default is 0.01
+  
   # NOTE: Use these values for benchmarking to stay consistent with YOLO, fasterRCNN, SSD, DETR,... etc
-  #   confidence_threshold: 0.01  
-  #   iou_threshold: 0.45
+  #   confidence_threshold: 0.001 - 0.01  
+  #   iou_threshold: 0.45 - 0.06
+  confidence_threshold: 0.01
+  iou_threshold: 0.6  # For nms
 
   
   

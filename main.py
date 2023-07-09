@@ -29,8 +29,8 @@ def get_training_config():
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     metric = MeanAveragePrecision(iou_type="bbox", class_metrics=True).to(device)
-    scaler = torch.cuda.amp.GradScaler()
-    general_loss = GeneralLossAccumulator()
+    epoch_train_losses = GeneralLossAccumulator()
+    train_loss_accumulator, val_loss_accumulator = [GeneralLossAccumulator()] * 2
     progress_summary = ProgressFormatter()
 
     if os.path.exists("debug"):
@@ -57,16 +57,16 @@ if __name__ == "__main__":
         model.parameters(),
         lr=float(training_cfg["learning_rate"]),
         weight_decay=training_cfg["weight_decay"],
+        amsgrad=True,
     )
 
-    model.train()
     classMAPs = {v: [] for v in list(labelmap.values())}
+    model.train()
     for epoch in range(training_cfg["n_epochs"]):
         if training_cfg["save_eval_images"]:
             os.makedirs(f"debug/{epoch}", exist_ok=True)
 
         # Train loop
-        losses = []
         for i, (image, labels, boxes, metadata) in enumerate(
             tqdm(train_dataloader, ncols=60)
             # train_dataloader
@@ -79,7 +79,7 @@ if __name__ == "__main__":
             boxes = coco_to_model_input(boxes, metadata).to(device)
 
             # Predict
-            all_pred_boxes, pred_classes, pred_sims, _ = model(image)
+            all_pred_boxes, _, pred_sims, _ = model(image)
             losses = criterion(pred_sims, labels, all_pred_boxes, boxes)
             loss = (
                 losses["loss_ce"]
@@ -90,10 +90,9 @@ if __name__ == "__main__":
             loss.backward()
             optimizer.step()
 
-            general_loss.update(losses)
+            train_loss_accumulator.update(losses)
 
-        train_metrics = general_loss.get_values()
-        general_loss.reset()
+        epoch_train_losses = train_loss_accumulator.get_values()
 
         # Eval loop
         model.eval()
@@ -107,7 +106,10 @@ if __name__ == "__main__":
                 boxes = coco_to_model_input(boxes, metadata).to(device)
 
                 # Get predictions and save output
-                pred_boxes, pred_classes, pred_class_sims, _ = model(image)
+                pred_boxes, _, pred_class_sims, _ = model(image)
+                losses = criterion(pred_class_sims, labels, pred_boxes, boxes)
+                val_loss_accumulator.update(losses)
+
                 pred_boxes, pred_classes, scores = postprocess(
                     pred_boxes, pred_class_sims
                 )
@@ -140,6 +142,8 @@ if __name__ == "__main__":
 
                     write_png(image_with_boxes, f"debug/{epoch}/{i}.jpg")
 
+        epoch_val_losses = val_loss_accumulator.get_values()
+
         print("Computing metrics...")
         val_metrics = metric.compute()
         for i, p in enumerate(val_metrics["map_per_class"].tolist()):
@@ -150,5 +154,8 @@ if __name__ == "__main__":
             json.dump(classMAPs, f)
 
         metric.reset()
-        progress_summary.update(epoch, train_metrics, val_metrics)
+        progress_summary.update(
+            epoch, epoch_train_losses, epoch_val_losses, val_metrics
+        )
+
         progress_summary.print()
