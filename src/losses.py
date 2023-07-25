@@ -182,7 +182,7 @@ class PushPullLoss(torch.nn.Module):
 
         pos_loss = torch.pow(1 - torch.exp(-pos_loss), 2) * pos_loss
         pos_loss[torch.where(pos_targets == 1)] *= 10  # scale up positives
-        pos_loss = pos_loss.sum(dim=0) / self.n_classes
+        pos_loss = pos_loss.sum(dim=0) / pred_logits.size(0)
 
         neg_loss = (torch.pow(1 - torch.exp(-neg_loss), 2) * neg_loss).sum(
             dim=0

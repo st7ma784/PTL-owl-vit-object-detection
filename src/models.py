@@ -166,15 +166,28 @@ def load_model(labelmap, device):
     trainable_parameters = []
     for name, parameter in patched_model.named_parameters():
         conditions = [
-            "layers.11.mlp" in name,
-            "layers.11.layer" in name,
+            # "layers.8" in name,
+            # "layers.9" in name,
+            # "layers.10" in name,
+            # "layers.11" in name,
             "box" in name,
             "post_layernorm" in name,
             "class_predictor" in name,
             "queries" in name,
         ]
         if any(conditions):
-            trainable_parameters.append(name)
+            add = ""
+            # if "weight" in name and "box" not in name:
+            #     add += " (re-initialized)"
+            #     if "norm" in name:
+            #         torch.nn.init.normal_(parameter)
+            #     else:
+            #         torch.nn.init.xavier_uniform_(parameter)
+            # elif "bias" in name and "box" not in name:
+            #     add += " (re-initialized)"
+            #     parameter.data.fill_(0.01)
+
+            trainable_parameters.append(name + add)
             continue
 
         parameter.requires_grad = False
@@ -183,4 +196,4 @@ def load_model(labelmap, device):
     for t in trainable_parameters:
         print(f"  {t}")
     print()
-    return patched_model.to(device)
+    return patched_model.to(device), trainable_parameters

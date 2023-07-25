@@ -26,6 +26,20 @@ def get_training_config():
         return data["training"]
 
 
+def init_weights(m):
+    # frozen = []
+    # for parameter in m.parameters():
+    #     frozen.append(parameter.requires_grad)
+
+    # print(frozen)
+    # print()
+    if isinstance(m, torch.nn.Linear):
+        # print("WEIGHTS RE INITIALIZED")
+        torch.nn.init.xavier_uniform_(m.weight)
+        m.bias.data.fill_(0.01)
+        print(dir(m))
+
+
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     metric = MeanAveragePrecision(iou_type="bbox", class_metrics=True).to(device)
@@ -39,7 +53,7 @@ if __name__ == "__main__":
     training_cfg = get_training_config()
     train_dataloader, test_dataloader, scales, labelmap = get_dataloaders()
 
-    model = load_model(labelmap, device)
+    model, trainable = load_model(labelmap, device)
 
     postprocess = PostProcess(
         confidence_threshold=training_cfg["confidence_threshold"],
@@ -59,10 +73,14 @@ if __name__ == "__main__":
         weight_decay=training_cfg["weight_decay"],
         amsgrad=True,
     )
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
 
     classMAPs = {v: [] for v in list(labelmap.values())}
     model.train()
     for epoch in range(training_cfg["n_epochs"]):
+        print(scheduler.get_lr())
+        # scheduler.step()
+        # continue
         if training_cfg["save_eval_images"]:
             os.makedirs(f"debug/{epoch}", exist_ok=True)
 
@@ -88,12 +106,14 @@ if __name__ == "__main__":
                 + losses["loss_giou"]
             )
             loss.backward()
+            # print(loss.sum().item())
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
             optimizer.step()
 
             train_loss_accumulator.update(losses)
 
         epoch_train_losses = train_loss_accumulator.get_values()
-
+        scheduler.step()
         # Eval loop
         model.eval()
         with torch.no_grad():
