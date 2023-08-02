@@ -48,7 +48,8 @@ def init_weights(m):
 class OwlVITModule(pl.LightningModule):
     def __init__(self, training_cfg,scales=None,labelmap=None):
         super().__init__()
-        _model = OwlViTForObjectDetection.from_pretrained("google/owlvit-base-patch32")
+        _model = OwlViTForObjectDetection.from_pretrained("google/owlvit-base-patch32",
+                                                          )
         _processor = AutoProcessor.from_pretrained("google/owlvit-base-patch32")
         self.labelmap=labelmap
         self.scales=scales
@@ -193,6 +194,6 @@ if __name__ == "__main__":
                          fast_dev_run=True,  
                          devices="auto",
                             )
-    trainer.fit(model,train_dataloader)
-    trainer.test(model,test_dataloader)
+    trainer.fit(module,train_dataloader)
+    trainer.test(module,test_dataloader)
 
