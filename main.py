@@ -8,7 +8,7 @@ from torchvision.io import write_png
 from tqdm import tqdm
 
 ''' This file defines loading OWLVIT with PTL and training in that ecosystem.'''
-
+import evaluate
 import torch
 import pytorch_lightning as pl
 from PIL import Image
@@ -89,6 +89,7 @@ class OwlVITModule(pl.LightningModule):
                                         )
     def forward(self, x):
         return self.model(x)
+    
     def training_step(self, batch, batch_idx):
         
         image,labels,boxes,metadata=batch
@@ -107,8 +108,10 @@ class OwlVITModule(pl.LightningModule):
         self.log("train_loss_giou", losses["loss_giou"])
 
         return loss
+    
     def on_validation_epoch_start(self):
         self.labelmap = self.trainer.datamodule.val.labelmap
+
     def validation_step(self, batch, batch_idx):
         image,labels,boxes,metadata=batch
         # Get predictions and save output
@@ -163,6 +166,32 @@ class OwlVITModule(pl.LightningModule):
 
         self.metric.reset()
 
+    def test_epoch_start(self,*args):
+        
+        #model = AutoModelForObjectDetection.from_pretrained("MariaK/detr-resnet-50_finetuned_cppe5")
+        self.module = evaluate.load("ybelkada/cocoevaluate", coco=self.coco_ann)
+    def test_step(self,batch,batch_idx):
+
+        #calculat mAP for test set
+        pixel_values = batch["pixel_values"]
+        pixel_mask = batch["pixel_mask"]
+
+        labels = [
+            {k: v for k, v in t.items()} for t in batch["labels"]
+        ]  # these are in DETR format, resized + normalized
+
+        # forward pass
+        outputs = self.model(pixel_values=pixel_values, pixel_mask=pixel_mask)
+
+        orig_target_sizes = torch.stack([target["orig_size"] for target in labels], dim=0)
+        results = self.Prep.post_process(outputs, orig_target_sizes)  # convert outputs of model to COCO api
+
+        self.module.add(prediction=results, reference=labels)
+    def test_epoch_end(self,outputs):
+        results = self.module.compute()
+        self.log("mAP",results["mAP"], on_epoch=True, prog_bar=True, logger=True)
+        self.print(results)
+         
 
     def configure_optimizers(self):        
         optimizer = torch.optim.AdamW(
