@@ -14,15 +14,14 @@ import pytorch_lightning as pl
 from PIL import Image
 from transformers import AutoProcessor, OwlViTForObjectDetection
 from src.losses import PushPullLoss
-from src.dataset import get_dataloaders
-from src.models import PostProcess, load_model,OwlViT
+from src.models import PostProcess, OwlViT
 from src.train_util import (
     coco_to_model_input,
     labels_to_classnames,
     model_output_to_image,
     update_metrics,
 )
-from src.util import BoxUtil, GeneralLossAccumulator, ProgressFormatter
+from src.util import BoxUtil, GeneralLossAccumulator
 
 
 def get_training_config():
@@ -48,27 +47,11 @@ def init_weights(m):
 class OwlVITModule(pl.LightningModule):
     def __init__(self, training_cfg,scales=None,labelmap=None):
         super().__init__()
-        _model = OwlViTForObjectDetection.from_pretrained("google/owlvit-base-patch32")
-        _processor = AutoProcessor.from_pretrained("google/owlvit-base-patch32")
-        self.labelmap=labelmap
-        self.scales=scales
-        inputs = _processor(
-            text=[list(labelmap.values())],
-            images=Image.new("RGB", (224, 224)),
-            return_tensors="pt",
-        )
-
-        with torch.no_grad():
-            queries = _model(**inputs).text_embeds
-
-        patched_model = OwlViT(pretrained_model=_model, query_bank=queries)
+        self.model = OwlViTForObjectDetection.from_pretrained("google/owlvit-base-patch32")
+     
 
 
 
-        self.criterion = PushPullLoss(
-                                        len(labelmap),
-                                        scales=torch.tensor(scales) if training_cfg["use_class_weight"] else None,
-                                        )
         self.postprocess = PostProcess(
                                         confidence_threshold=training_cfg["confidence_threshold"],
                                         iou_threshold=training_cfg["iou_threshold"],
@@ -81,8 +64,33 @@ class OwlVITModule(pl.LightningModule):
         self.train_loss_accumulator, self.val_loss_accumulator = [GeneralLossAccumulator()] * 2
     def forward(self, x):
         return self.model(x)
+    def on_train_epoch_start(self):
+        self._processor = AutoProcessor.from_pretrained("google/owlvit-base-patch32")
+        
+        labels=self.trainer.datamodule.labels
+        print(labels)
+        scales=self.trainer.datamodule.scales if self.trainer.datamodule.scales else None
+        
+        inputs = self._processor(
+            text=[list(labels)],  
+            images=Image.new("RGB", (224, 224)),
+            return_tensors="pt",
+        )
+        
+        with torch.no_grad():
+            self.queries = self.model(**inputs).text_embeds
 
+        
+        self.model = OwlViT(pretrained_model=self.model, query_bank=self.queries)
+    
+        self.criterion = PushPullLoss(
+                                        len(labels),
+                                        scales=scales,
+                                        )
+    def forward(self, x):
+        return self.model(x)
     def training_step(self, batch, batch_idx):
+        
         image,labels,boxes,metadata=batch
         all_pred_boxes, _, pred_sims, _ = self(image)
         losses = self.criterion(pred_sims, labels, all_pred_boxes, boxes)
@@ -99,7 +107,8 @@ class OwlVITModule(pl.LightningModule):
         self.log("train_loss_giou", losses["loss_giou"])
 
         return loss
-
+    def on_validation_epoch_start(self):
+        self.labelmap = self.trainer.datamodule.val.labelmap
     def validation_step(self, batch, batch_idx):
         image,labels,boxes,metadata=batch
         # Get predictions and save output
@@ -169,17 +178,18 @@ class OwlVITModule(pl.LightningModule):
         )
         
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
-        return optimizer, scheduler
+        return [optimizer], [scheduler]
 
 if __name__ == "__main__":
     
-
+    from src.dataset import COCODataModule
     training_cfg = get_training_config()
-    train_dataloader, test_dataloader, scales, labelmap = get_dataloaders()
+    datamodule=COCODataModule(dir="/data",batch_size=1)
+    # train_dataloader, test_dataloader, scales, labelmap = get_dataloaders()
 
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-    module = OwlVITModule(training_cfg,scales, labelmap)
+    module = OwlVITModule(training_cfg)
 
 
     trainer = pl.Trainer(
@@ -193,6 +203,6 @@ if __name__ == "__main__":
                          fast_dev_run=True,  
                          devices="auto",
                             )
-    trainer.fit(model,train_dataloader)
-    trainer.test(model,test_dataloader)
+    trainer.fit(module,datamodule)
+    trainer.test(module,datamodule)
 
