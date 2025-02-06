@@ -42,7 +42,21 @@ def generalized_box_iou(boxes1, boxes2):
     area = wh[:, :, 0] * wh[:, :, 1]
 
     return iou - (area - union) / area
+def log_sinkhorn(log_alpha, n_iter):
+    for _ in range(n_iter):
+        log_alpha = log_alpha - torch.logsumexp(log_alpha, -1, keepdim=True)
+        log_alpha = log_alpha - torch.logsumexp(log_alpha, -2, keepdim=True)
+    return log_alpha.exp()
 
+def sample_gumbel(shape, device='cpu', eps=1e-20):
+    u = torch.rand(shape, device=device)
+    return -torch.log(-torch.log(u + eps) + eps)
+
+def GS(log_alpha, tau=0.1, n_iter=15 , noise_factor=1.0):
+    gumbel_noise = sample_gumbel(log_alpha.shape, device=log_alpha.device) * noise_factor
+    # Apply the Sinkhorn operator!
+    log_alpha = log_alpha + gumbel_noise
+    return log_sinkhorn(log_alpha /tau, n_iter)
 
 # From https://github.com/facebookresearch/detr/blob/main/models/matcher.py
 class HungarianMatcher(torch.nn.Module):
@@ -53,7 +67,7 @@ class HungarianMatcher(torch.nn.Module):
     """
 
     def __init__(
-        self, cost_class: float = 1, cost_bbox: float = 1, cost_giou: float = 1
+        self, cost_class: float = 1, cost_bbox: float = 1, cost_giou: float = 1, method: str ="lsa"
     ):
         """Creates the matcher
         Params:
@@ -68,6 +82,21 @@ class HungarianMatcher(torch.nn.Module):
         assert (
             cost_class != 0 or cost_bbox != 0 or cost_giou != 0
         ), "all costs cant be 0"
+        if method == "lsa":
+            self.process_cost_matrix = self.process_cost_matrix_LSA
+        elif method == "gs":
+            self.process_cost_matrix = self.process_cost_matrix_GS
+        else:
+            raise ValueError("Invalid method")
+
+    def process_cost_matrix_LSA(self,C,sizes):
+        return  [linear_sum_assignment(c[i]) for i, c in enumerate(C.cpu().split(sizes, -1))]
+    
+    def process_cost_matrix_GS(self,C,sizes):
+        return [
+            #use GS to calculate the optimal assignment, cast as coo matrix to natively get the indices
+            GS(c[i]).to_sparse().indices for i, c in enumerate(C.cpu().split(sizes, -1))
+            ] 
 
     @torch.no_grad()
     def forward(self, outputs, targets):
@@ -116,12 +145,10 @@ class HungarianMatcher(torch.nn.Module):
             + self.cost_class * cost_class
             + self.cost_giou * cost_giou
         )
-        C = C.view(bs, num_queries, -1).cpu()
+        C = C.view(bs, num_queries, -1)
 
         sizes = [len(v["boxes"]) for v in targets]
-        indices = [
-            linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))
-        ]
+        indices = self.process_cost_matrix(C,sizes)
         return [
             (
                 torch.as_tensor(i, dtype=torch.int64),
@@ -132,9 +159,9 @@ class HungarianMatcher(torch.nn.Module):
 
 
 class PushPullLoss(torch.nn.Module):
-    def __init__(self, n_classes, scales):
+    def __init__(self, n_classes, scales,method="lsa"):
         super().__init__()
-        self.matcher = HungarianMatcher()
+        self.matcher = HungarianMatcher(method=method)
         self.class_criterion = torch.nn.BCELoss(reduction="none", weight=scales)
 
         self.n_classes = n_classes

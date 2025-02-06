@@ -45,12 +45,12 @@ def init_weights(m):
 
 
 class OwlVITModule(pl.LightningModule):
-    def __init__(self, training_cfg,scales=None,labelmap=None):
+    def __init__(self, training_cfg,scales=None,labelmap=None,method:str ="lsa"):
         super().__init__()
         self.model = OwlViTForObjectDetection.from_pretrained("google/owlvit-base-patch32")
      
 
-
+        self.method = method
 
         self.postprocess = PostProcess(
                                         confidence_threshold=training_cfg["confidence_threshold"],
@@ -86,6 +86,7 @@ class OwlVITModule(pl.LightningModule):
         self.criterion = PushPullLoss(
                                         len(labels),
                                         scales=scales,
+                                        method=self.method,
                                         )
     def forward(self, x):
         return self.model(x)
@@ -213,18 +214,21 @@ if __name__ == "__main__":
     
     from src.dataset import COCODataModule
     training_cfg = get_training_config()
-    datamodule=COCODataModule(dir="/data",batch_size=1)
+    datamodule=COCODataModule(dir="/data",batch_size=16)
     # train_dataloader, test_dataloader, scales, labelmap = get_dataloaders()
 
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-    module = OwlVITModule(training_cfg)
-
+    module = OwlVITModule(training_cfg,method="lsa") #try GS ??
+    #import wandb 
+    import wandb
+    LOGGER=pl.loggers.WandbLogger(project="owlvit",entity="st7ma784")
 
     trainer = pl.Trainer(
                          precision=16,
                          max_epochs=2,#args['epochs'], 
                          num_sanity_val_steps=0,
+                         logger=LOGGER,
                          gradient_clip_val=0.25,
                          accumulate_grad_batches=4,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
