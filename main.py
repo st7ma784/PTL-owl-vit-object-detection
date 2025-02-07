@@ -153,7 +153,7 @@ class OwlVITModule(pl.LightningModule):
             write_png(image_with_boxes, f"debug/{self.current_epoch}/{batch_idx}.jpg")
         return losses
     
-    def validation_epoch_end(self, outputs):
+    def on_validation_epoch_end(self, outputs):
         classMAPs = {v: [] for v in list(self.labelmap.values())}
         #epoch_val_losses = val_loss_accumulator.get_values()
 
@@ -167,7 +167,7 @@ class OwlVITModule(pl.LightningModule):
 
         self.metric.reset()
 
-    def test_epoch_start(self,*args):
+    def on_test_epoch_start(self,*args):
         
         #model = AutoModelForObjectDetection.from_pretrained("MariaK/detr-resnet-50_finetuned_cppe5")
         self.module = evaluate.load("ybelkada/cocoevaluate", coco=self.coco_ann)
@@ -188,7 +188,7 @@ class OwlVITModule(pl.LightningModule):
         results = self.Prep.post_process(outputs, orig_target_sizes)  # convert outputs of model to COCO api
 
         self.module.add(prediction=results, reference=labels)
-    def test_epoch_end(self,outputs):
+    def on_test_epoch_end(self,outputs):
         results = self.module.compute()
         self.log("mAP",results["mAP"], on_epoch=True, prog_bar=True, logger=True)
         self.print(results)
@@ -221,7 +221,6 @@ if __name__ == "__main__":
 
     module = OwlVITModule(training_cfg,method="lsa") #try GS ??
     #import wandb 
-    import wandb
     LOGGER=pl.loggers.WandbLogger(project="owlvit",entity="st7ma784")
 
     trainer = pl.Trainer(
