@@ -52,10 +52,10 @@ def sample_gumbel(shape, device='cpu', eps=1e-20):
     u = torch.rand(shape, device=device)
     return -torch.log(-torch.log(u + eps) + eps)
 
-def GS(log_alpha, tau=0.1, n_iter=15 , noise_factor=1.0):
+def GS(log_alpha, tau=0.04, n_iter=100 , noise_factor=2e-6 ,scale=18):
     gumbel_noise = sample_gumbel(log_alpha.shape, device=log_alpha.device) * noise_factor
     # Apply the Sinkhorn operator!
-    log_alpha = log_alpha + gumbel_noise
+    log_alpha = (log_alpha*scale) + gumbel_noise
     return log_sinkhorn(log_alpha /tau, n_iter)
 
 # From https://github.com/facebookresearch/detr/blob/main/models/matcher.py
